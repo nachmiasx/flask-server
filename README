@@ -1,0 +1,133 @@
+Flask OpenAI Backend Application with Dockerized PostgreSQL
+This project is a Flask-based backend application that allows users to ask questions and receive answers using the OpenAI API. The application is Dockerized and uses PostgreSQL for persistent data storage.
+
+The project includes:
+
+A Flask web application.
+PostgreSQL as the database.
+Docker and Docker Compose for containerized deployment.
+Alembic for database migrations.
+Pytest for testing.
+Features
+User Authentication: Users can sign up and log in using their email and password.
+Question & Answer: Users can ask questions, and the app uses the OpenAI API to return answers.
+Database Storage: User information and their Q&A history are stored in a PostgreSQL database.
+Containerization: The app is Dockerized, allowing easy deployment using Docker and Docker Compose.
+Requirements
+Make sure you have the following installed:
+
+Docker: Install Docker
+Docker Compose: Install Docker Compose
+Python 3.9+: Required for local testing if you're not using Docker
+Setup Instructions
+1. Clone the Repository
+bash
+Copy code
+git clone <repository_url>
+cd <repository_name>
+2. Environment Variables
+Create a .env file in the root directory of the project and add the following environment variables:
+
+makefile
+Copy code
+DB_HOST=db
+DB_NAME=postgres
+DB_USER=postgres
+DB_PASSWORD=mysecretpassword
+DB_PORT=5432
+OPENAI_API_KEY=<your_openai_api_key>
+SECRET_KEY=<your_secret_key>
+3. Build and Run the Application
+You can use Docker Compose to build and run both the Flask application and the PostgreSQL database.
+
+bash
+Copy code
+docker-compose up --build
+This will:
+
+Build the Flask application Docker image.
+Set up the PostgreSQL database.
+Run both services in Docker containers.
+4. Apply Database Migrations
+After the containers are up, apply the database migrations to create the necessary tables.
+
+bash
+Copy code
+docker-compose exec web alembic upgrade head
+5. Access the Application
+Once everything is up, the Flask application will be running on http://localhost:5001. You can interact with the application via the login, signup, and question endpoints.
+
+Project Structure
+bash
+Copy code
+.
+├── app.py              # Main Flask application
+├── Dockerfile          # Dockerfile for the Flask app
+├── docker-compose.yml  # Docker Compose configuration
+├── db/
+│   ├── users.py        # SQLAlchemy User model
+│   ├── question_answers.py  # SQLAlchemy QuestionAnswer model
+├── alembic/            # Alembic configuration for database migrations
+├── requirements.txt    # Python dependencies
+└── .env                # Environment variables (not included in repo)
+Endpoints
+/signup [POST]: Register a new user.
+/login [POST]: Authenticate a user.
+/ask [POST]: Ask a question and get an answer from OpenAI.
+Example Usage
+Sign up a new user:
+
+bash
+Copy code
+POST /signup
+{
+    "email": "test@example.com",
+    "password": "securepassword"
+}
+Log in:
+
+bash
+Copy code
+POST /login
+{
+    "email": "test@example.com",
+    "password": "securepassword"
+}
+Ask a question:
+
+bash
+Copy code
+POST /ask
+Authorization: Bearer <JWT_TOKEN>
+{
+    "question": "What is the capital of France?"
+}
+Running Tests
+The project uses Pytest for testing. To run the tests:
+
+Install dependencies:
+
+bash
+Copy code
+pip install -r requirements.txt
+Run the tests:
+
+bash
+Copy code
+pytest
+Docker Compose Setup
+The docker-compose.yml sets up both the web (Flask app) and db (PostgreSQL) services.
+The PostgreSQL data is persisted using Docker volumes (postgres_data).
+Services
+web: Flask application
+db: PostgreSQL database
+Troubleshooting
+Common Errors
+Database Connection Issue: Ensure that your .env file is correctly set up with matching credentials in docker-compose.yml.
+
+JWT Expired or Invalid: The JWT token expires 1 hour after creation. Make sure the server time is synchronized properly.
+
+Unsupported Media Type: Ensure you're sending Content-Type: application/json in your API requests when posting data.
+
+
+

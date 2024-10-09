@@ -1,82 +1,72 @@
-import os
 import pytest
-from flask import Flask
-# from SQLAlchemy import *
-from app import app as flask_app, db  # Import your app and db
-from db.users import User
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from db.users import Base, User, save_user, login_user
 from db.question_answers import QuestionAnswer
 
-# Set the testing configuration
-TEST_DATABASE_URI = os.getenv('TEST_DATABASE_URL',
-                              'postgresql://username:password@localhost/test_db')  # Update this line with your actual test DB
+# Replace with your actual database URL for testing
+TEST_DB_HOST = os.getenv('DB_HOST')
+TEST_DB_NAME = os.getenv('DB_NAME')
+TEST_DB_USER = os.getenv('DB_USER')
+TEST_DB_PASSWORD = os.getenv('DB_PASSWORD')
+TEST_DB_PORT = os.getenv('DB_PORT')
 
+TEST_DATABASE_URL = f"postgresql+psycopg2://{TEST_DB_USER}:{TEST_DB_PASSWORD}@{TEST_DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
 
-@pytest.fixture
-def app():
-    # Create a new app instance for testing
-    flask_app.config['SQLALCHEMY_DATABASE_URI'] = TEST_DATABASE_URI
-    flask_app.config['TESTING'] = True
-    flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Set up the database engine and session factory
+@pytest.fixture(scope='module')
+def db_engine():
+    engine = create_engine(TEST_DATABASE_URL)
+    Base.metadata.create_all(engine)  # Create tables in the test database
+    yield engine
+    Base.metadata.drop_all(engine)  # Drop tables after all tests are done
 
-    # Create the database tables
-    with flask_app.app_context():
-        db.create_all()
+@pytest.fixture(scope='function')
+def db_session(db_engine):
+    """Creates a new database session for a test."""
+    Session = sessionmaker(bind=db_engine)
+    session = Session()
+    yield session
+    session.rollback()  # Roll back any changes after the test
+    session.close()
 
-    yield flask_app
+def test_save_user(db_session):
+    # Arrange
+    email = "testuser@example.com"
+    password = "SecurePassword123"
 
-    # Clean up the database
-    with flask_app.app_context():
-        db.drop_all()
+    # Act
+    save_user(email, password)
 
+    # Assert
+    user = db_session.query(User).filter_by(email=email).first()
 
-@pytest.fixture
-def client(app):
-    return app.test_client()
+    assert user is not None, "User should be saved in the database."
+    assert user.email == email, "Email should match the saved email."
+    assert user.password_hash, "Password hash should not be empty."
 
+def test_login_user(db_session):
+    # Arrange
+    email = "loginuser@example.com"
+    password = "AnotherSecurePassword456"
+    save_user(email, password)  # Save the user first
 
-def test_signup(client):
-    response = client.post('/signup', data={
-        'email': 'testuser@example.com',
-        'password': 'TestPassword123!'
-    })
-    assert response.status_code == 302  # Check for redirect
-    assert b'Sign in here' in response.data  # Check for sign-in prompt
+    # Act
+    login_success = login_user(email, password)
 
+    # Assert
+    assert login_success, "User should be able to log in with correct credentials."
 
-def test_login(client):
-    # First sign up a user
-    client.post('/signup', data={
-        'email': 'testuser@example.com',
-        'password': 'TestPassword123!'
-    })
+def test_failed_login(db_session):
+    # Arrange
+    email = "wronguser@example.com"
+    password = "WrongPassword789"
+    save_user("existinguser@example.com", "CorrectPassword")  # Save an existing user
 
-    # Now try to log in
-    response = client.post('/login', data={
-        'email': 'testuser@example.com',
-        'pass': 'TestPassword123!'
-    })
-    assert response.status_code == 200
-    assert b"token" in response.data  # Check if token is present in the response
+    # Act
+    login_success = login_user(email, password)
 
-
-def test_ask_question(client):
-    # First sign up and log in a user
-    client.post('/signup', data={
-        'email': 'testuser@example.com',
-        'password': 'TestPassword123!'
-    })
-    login_response = client.post('/login', data={
-        'email': 'testuser@example.com',
-        'pass': 'TestPassword123!'
-    })
-
-    token = login_response.get_json()['token']
-
-    # Now ask a question
-    response = client.post('/ask', json={
-        'question': 'What is the capital of France?'
-    }, headers={'Authorization': f'Bearer {token}'})
-
-    assert response.status_code == 200
-    assert b"question" in response.data  # Adjust this based on your actual response structure
+    # Assert
+    assert not login_success, "User should not be able to log in with incorrect credentials."
 

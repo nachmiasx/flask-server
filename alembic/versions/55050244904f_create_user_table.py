@@ -19,14 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
-    # Create the users table
-    op.create_table(
-        'users',
-        sa.Column('id', sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column('email', sa.String(255), nullable=False, unique=True),
-        sa.Column('password_hash', sa.Text(), nullable=False),
-        sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.func.now(), nullable=False)
-    )
+    # Check if the 'users' table already exists
+    connection = op.get_bind()
+    if not connection.dialect.has_table(connection, 'users'):
+        # Create the users table
+        op.create_table(
+            'users',
+            sa.Column('id', sa.Integer, primary_key=True, autoincrement=True),
+            sa.Column('email', sa.String(255), nullable=False, unique=True),
+            sa.Column('password_hash', sa.Text(), nullable=False),
+            sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.func.now(), nullable=False)
+        )
 
 
 def downgrade():

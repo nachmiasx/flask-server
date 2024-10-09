@@ -57,5 +57,3 @@ def save_question_answer(email, question, answer):
     finally:
         session.close()
 
-# Create the tables if they don't exist
-Base.metadata.create_all(engine)
