@@ -57,3 +57,21 @@ def save_question_answer(email, question, answer):
     finally:
         session.close()
 
+def get_question_history(email):
+    session = Session()
+
+    try:
+        user = session.query(User).filter_by(email=email).first()
+        if not user:
+            return []
+
+        # Fetch the questions and answers
+        question_answers = session.query(QuestionAnswer).filter_by(email=email).all()
+        history = [{"question": qa.question, "answer": qa.answer} for qa in question_answers]
+        return history
+
+    except Exception as e:
+        logger.error(f"Error fetching question history: {e}")
+        return []
+    finally:
+        session.close()

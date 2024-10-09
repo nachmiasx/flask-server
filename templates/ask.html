@@ -10,46 +10,76 @@
     <div class="container">
         <div class="row">
             <div class="col-md-8 mx-auto pt-5">
-                <h1>Ask Your Question</h1>
+                <h1>Ask a Question</h1>
                 <form id="question-form">
                     <div class="form-group">
-                        <input type="text" id="question" class="form-control" name="question" placeholder="Type your question..." required>
+                        <label for="question">Your Question:</label>
+                        <input type="text" id="question" name="question" class="form-control" placeholder="Ask your question..." required>
                     </div>
                     <button type="submit" class="btn btn-primary">Ask</button>
                 </form>
 
-                <div id="response" class="mt-3" style="display: none;">
-                    <div class="card">
-                        <div class="card-body">
-                            <p id="response-text"></p>
-                        </div>
-                    </div>
-                </div>
+                <h3 class="mt-5">Response:</h3>
+                <div id="response" class="border p-3"></div>
+
+                <!-- Button to show the question history -->
+                <button id="show-history-btn" class="btn btn-secondary mt-3">Show Question History</button>
+
+                <!-- Div to display the question history -->
+                <div id="history" class="border p-3 mt-3" style="display: none;"></div>
             </div>
         </div>
     </div>
 
     <script>
+        // Handle the form submission for asking a new question
         document.getElementById('question-form').onsubmit = async function(event) {
-            event.preventDefault(); // Prevent the default form submission
+            event.preventDefault();
 
             const question = document.getElementById('question').value;
-            const token = localStorage.getItem("token"); // Assuming you store the JWT token here
+            const token = localStorage.getItem('token'); // Assuming the token is stored in localStorage
 
-            // Send a POST request to the /ask endpoint
             const response = await fetch('/ask', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json', // Ensure this is JSON
-                    'Authorization': `Bearer ${token}` // Include the token if needed
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ question }) // Send the question as JSON
+                body: JSON.stringify({ question })
             });
 
             const data = await response.json();
-            const responseDiv = document.getElementById('response');
-            responseDiv.style.display = 'block';
-            document.getElementById('response').innerText = `Response: ${data.answer || data.error}`;
+            if (data.answer) {
+                document.getElementById('response').innerText = `Answer: ${data.answer}`;
+            } else {
+                document.getElementById('response').innerText = `Error: ${data.error}`;
+            }
+        };
+
+        // Handle the button click to show question history
+        document.getElementById('show-history-btn').onclick = async function() {
+            const token = localStorage.getItem('token');
+
+            const response = await fetch('/ask/history', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const data = await response.json();
+
+            // If there is no error, display the question history
+            if (!data.error) {
+                let historyHTML = "";
+                data.history.forEach(item => {
+                    historyHTML += `<p><strong>Question:</strong> ${item.question}<br><strong>Answer:</strong> ${item.answer}</p>`;
+                });
+                document.getElementById('history').innerHTML = historyHTML;
+                document.getElementById('history').style.display = 'block'; // Show the history div
+            } else {
+                document.getElementById('history').innerHTML = `<p class="text-danger">${data.error}</p>`;
+            }
         };
     </script>
 </body>
