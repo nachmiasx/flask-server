@@ -1,52 +1,67 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, redirect, url_for, render_template
 from flask_cors import CORS
-from db.products import add_or_update_product, get_all_products, delete_product, delete_all_products
+from services.gpt_service import new_question
 from db.users import save_user, login_user
-from services.vision_service import analyze_image
-from services.gpt_service import summarize_receipt
+from db.question_answers import save_question_answer
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-SECRET_KEY = os.getenv('SECRET_KEY')  
+SECRET_KEY = os.getenv('SECRET_KEY')
 
-# פונקציה ליצירת JWT
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+
 def create_jwt(user_id):
+    creation_time = datetime.utcnow()
+    expiration_time = creation_time + timedelta(hours=1)
     payload = {
-        'user_id': user_id,
-        'exp': datetime.utcnow() + timedelta(hours=1)  # תוקף של שעה
+        'email': user_id,
+        'exp': expiration_time,
+        'iat': creation_time
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+    logger.info(f"Token created at: {creation_time}")
+    logger.info(f"Token expires at: {expiration_time}")
+    logger.info(f"Token: {token}")
     return token
 
-# פונקציה לאימות JWT
 def verify_jwt(token):
+    verification_time = datetime.utcnow()
+    logger.info(f"Token verification time: {verification_time}")
+    logger.info(f"Token: {token}")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        logger.info(f"Token successfully verified. Payload: {payload}")
         return payload
     except jwt.ExpiredSignatureError:
-        return None  # הטוקן פג תוקף
-    except jwt.InvalidTokenError:
-        return None  # הטוקן לא תקין
+        logger.error("Token has expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        logger.error(f"Invalid token: {str(e)}")
+        return None
+
 
 @app.route('/')
-def serve_react_app():
-    return send_from_directory(app.static_folder, 'index.html')
+def login_page():
+    return render_template('login.html')
 
-@app.route('/<path:path>')
-def serve_react_paths(path):
-    return send_from_directory(app.static_folder, 'index.html')
+@app.route('/signup')
+def signup_page():
+    return render_template('signup.html')
 
-# נתיב לרישום משתמש חדש
 @app.route('/signup', methods=['POST'])
 def signup():
-    data = request.json
+    data = request.form
     email = data.get('email')
     password = data.get('password')
 
@@ -55,122 +70,62 @@ def signup():
 
     try:
         save_user(email, password)
-        return jsonify({"message": "User signed up successfully"}), 201
+        # Redirect to login page after successful signup
+        return redirect(url_for('login_page'))  # Redirect to the login page
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return render_template('signup.html', error=str(e))  # Show error on the signup page
 
-# נתיב להתחברות משתמש
+
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
+    email = request.form.get('email')
+    password = request.form.get('pass')
 
     if not email or not password:
         return jsonify({"error": "Missing email or password"}), 400
 
     if login_user(email, password):
-        # יצירת JWT
+        logger.info(f"Logged in as {email}")
         token = create_jwt(email)
-        return jsonify({"message": "Login successful", "token": token}), 200
+        logger.info("User with email:" + email + " logged in")
+        return jsonify({"token": token, "redirect": url_for('ask_page')}), 200
     else:
         return jsonify({"error": "Invalid credentials"}), 401
 
-# נתיב להוספה או עדכון מוצר
-@app.route('/products/update', methods=['POST'])
-def update_product():
+@app.route('/ask')
+def ask_page():
+    return render_template('ask.html')
+
+
+@app.route('/ask', methods=['POST'])
+def ask():
     token = request.headers.get('Authorization')
-    user_data = verify_jwt(token.split()[1]) if token else None
-    if not user_data:
-        return jsonify({"error": "Unauthorized"}), 401
+    if not token:
+        return jsonify({"error": "Authorization token is missing"}), 401
+    token = token.split(" ")[1]
+    user = verify_jwt(token)
+    if not user:
+        return jsonify({"error": "Invalid or expired token"}), 401
 
-    user_id = user_data['user_id']
-    data = request.json
-    product_name = data.get('name')
-    quantity = data.get('quantity')
+    if request.is_json:
+        data = request.get_json()
+        question = data.get('question')
 
-    if not product_name or quantity is None:
-        return jsonify({"error": "Missing product name or quantity"}), 400
+        if not question:
+            return jsonify({"error": "Question not provided"}), 400
 
-    try:
-        message, products = add_or_update_product(product_name, quantity, user_id)
-        return jsonify({"message": message, "products": products}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        try:
 
-# נתיב למחיקת מוצר
-@app.route('/products/delete/<string:product_name>', methods=['DELETE'])
-def delete_product_route(product_name):
-    token = request.headers.get('Authorization')
-    user_data = verify_jwt(token.split()[1]) if token else None
-    if not user_data:
-        return jsonify({"error": "Unauthorized"}), 401
+            answer = new_question(question)
+            email = user['email']
+            save_question_answer(email=email, question=question, answer=answer)
 
-    user_id = user_data['user_id']
-    try:
-        print(f"Product to delete: {product_name}")  # הדפסת שם המוצר לבדיקה
-        message, products = delete_product(product_name, user_id)
-        return jsonify({"message": message, "products": products}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            return jsonify({"question": question, "answer": answer}), 200
 
-# נתיב למחיקת כל המוצרים
-@app.route('/products/delete-all', methods=['DELETE'])
-def delete_all_products_route():
-    token = request.headers.get('Authorization')
-    user_data = verify_jwt(token.split()[1]) if token else None
-    if not user_data:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    user_id = user_data['user_id']
-    try:
-        message, products = delete_all_products(user_id)
-        return jsonify({"message": message, "products": products}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# נתיב להצגת כל המוצרים
-@app.route('/products', methods=['GET'])
-def list_products():
-    token = request.headers.get('Authorization')
-    user_data = verify_jwt(token.split()[1]) if token else None
-    if not user_data:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    user_id = user_data['user_id']
-    try:
-        products = get_all_products(user_id)
-        return jsonify({"products": products}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# נתיב לניתוח תמונה באמצעות Google Vision API
-@app.route('/analyze-image', methods=['POST'])
-def analyze_image_route():
-    token = request.headers.get('Authorization')
-    user_data = verify_jwt(token.split()[1]) if token else None
-    if not user_data:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    user_id = user_data['user_id']
-
-    data = request.json
-    if 'image' not in data:
-        return jsonify({"error": "Image not provided"}), 400
-
-    vision_response, status_code = analyze_image(data['image'])
-
-    if status_code != 200:
-        return vision_response, status_code
-
-    extracted_text = vision_response.get_json().get('texts')
-    
-    # העברת user_id לפונקציה summarize_receipt
-    response = summarize_receipt(extracted_text, user_id)
-    
-    return response
-
-
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": "Request must be JSON"}), 400
 
 
 if __name__ == "__main__":

@@ -3,20 +3,25 @@ import bcrypt
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, String
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
+import logging
+
 
 # Load environment variables
 load_dotenv()
 
 # Define the SQLAlchemy base class
 Base = declarative_base()
-
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class User(Base):
     __tablename__ = 'users'
 
     email = Column(String, primary_key=True)
     password_hash = Column(String)
+    # Define the relationship with QuestionAnswer
+    questions = relationship("QuestionAnswer", back_populates="user")
 
 
 # Database connection setup
@@ -46,7 +51,7 @@ def save_user(email, password):
 
     try:
         # Debug: Print the hashed password before saving
-        print(f"Hashed password: {hashed_password}")
+        logger.info(f"Hashed password: {hashed_password}")
 
         # Create a new User instance
         new_user = User(email=email, password_hash=hashed_password)
@@ -54,9 +59,9 @@ def save_user(email, password):
         # Add the user to the session and commit
         session.add(new_user)
         session.commit()
-        print("User saved successfully.")
+        logger.info("User saved successfully.")
     except Exception as e:
-        print(f"Error saving user: {e}")
+        logger.info(f"Error saving user: {e}")
         session.rollback()  # Rollback if there's an error
     finally:
         session.close()  # Close the session
@@ -65,26 +70,25 @@ def save_user(email, password):
 # Function to login a user
 def login_user(email, password):
     session = Session()
-
     try:
         user = session.query(User).filter_by(email=email).first()
 
         if user is None:
-            print("User does not exist.")
+            logger.info("User does not exist.")
             return False
 
         stored_password = user.password_hash
 
         # Check if the hashed password matches the provided password
         if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
-            print("Login successful.")
+            logger.info("Login successful.")
             return True
         else:
-            print("Invalid password.")
+            logger.info("Invalid password.")
             return False
 
     except Exception as e:
-        print(f"Error logging in: {e}")
+        logger.info(f"Error logging in: {e}")
         return False
     finally:
         session.close()  # Close the session

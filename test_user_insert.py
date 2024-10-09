@@ -1,77 +1,82 @@
-import unittest
-# from your_user_management_file import save_user, login_user  # Import the functions from your main code
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from db.users import *  # Import your SQLAlchemy Base
+import pytest
+from flask import Flask
+# from SQLAlchemy import *
+from app import app as flask_app, db  # Import your app and db
+from db.users import User
+from db.question_answers import QuestionAnswer
 
-# from db.users import User
+# Set the testing configuration
+TEST_DATABASE_URI = os.getenv('TEST_DATABASE_URL',
+                              'postgresql://username:password@localhost/test_db')  # Update this line with your actual test DB
 
-# Replace with your actual database URL for testing
-TEST_DB_HOST = os.getenv('DB_HOST')
-TEST_DB_NAME = 'flask_db'  # Use a separate database for testing
-TEST_DB_USER = os.getenv('DB_USER')
-TEST_DB_PASSWORD = os.getenv('DB_PASSWORD')
-TEST_DB_PORT = os.getenv('DB_PORT')
 
-TEST_DATABASE_URL = f"postgresql+psycopg2://{TEST_DB_USER}:{TEST_DB_PASSWORD}@{TEST_DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
+@pytest.fixture
+def app():
+    # Create a new app instance for testing
+    flask_app.config['SQLALCHEMY_DATABASE_URI'] = TEST_DATABASE_URI
+    flask_app.config['TESTING'] = True
+    flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-class TestUserManagement(unittest.TestCase):
+    # Create the database tables
+    with flask_app.app_context():
+        db.create_all()
 
-    @classmethod
-    def setUpClass(cls):
-        # Set up the database connection for testing
-        cls.engine = create_engine(TEST_DATABASE_URL)
-        Base.metadata.create_all(cls.engine)  # Create tables in the test database
+    yield flask_app
 
-        cls.Session = sessionmaker(bind=cls.engine)
+    # Clean up the database
+    with flask_app.app_context():
+        db.drop_all()
 
-    @classmethod
-    def tearDownClass(cls):
-        # Drop the database tables after tests
-        # Base.metadata.drop_all(cls.engine)
-        return
 
-    def test_save_user(self):
-        # Arrange
-        email = "testuser@example.com"
-        password = "SecurePassword123"
+@pytest.fixture
+def client(app):
+    return app.test_client()
 
-        # Act
-        save_user(email, password)
 
-        # Assert
-        session = self.Session()
-        user = session.query(User).filter_by(email=email).first()
-        session.close()
+def test_signup(client):
+    response = client.post('/signup', data={
+        'email': 'testuser@example.com',
+        'password': 'TestPassword123!'
+    })
+    assert response.status_code == 302  # Check for redirect
+    assert b'Sign in here' in response.data  # Check for sign-in prompt
 
-        self.assertIsNotNone(user, "User should be saved in the database.")
-        self.assertEqual(user.email, email, "Email should match the saved email.")
-        self.assertTrue(user.password_hash, "Password hash should not be empty.")
 
-    def test_login_user(self):
-        # Arrange
-        email = "loginuser@example.com"
-        password = "AnotherSecurePassword456"
-        save_user(email, password)  # Save the user first
+def test_login(client):
+    # First sign up a user
+    client.post('/signup', data={
+        'email': 'testuser@example.com',
+        'password': 'TestPassword123!'
+    })
 
-        # Act
-        login_success = login_user(email, password)
+    # Now try to log in
+    response = client.post('/login', data={
+        'email': 'testuser@example.com',
+        'pass': 'TestPassword123!'
+    })
+    assert response.status_code == 200
+    assert b"token" in response.data  # Check if token is present in the response
 
-        # Assert
-        self.assertTrue(login_success, "User should be able to log in with correct credentials.")
 
-    def test_failed_login(self):
-        # Arrange
-        email = "wronguser@example.com"
-        password = "WrongPassword789"
-        save_user("existinguser@example.com", "CorrectPassword")  # Save an existing user
+def test_ask_question(client):
+    # First sign up and log in a user
+    client.post('/signup', data={
+        'email': 'testuser@example.com',
+        'password': 'TestPassword123!'
+    })
+    login_response = client.post('/login', data={
+        'email': 'testuser@example.com',
+        'pass': 'TestPassword123!'
+    })
 
-        # Act
-        login_success = login_user(email, password)
+    token = login_response.get_json()['token']
 
-        # Assert
-        self.assertFalse(login_success, "User should not be able to log in with incorrect credentials.")
+    # Now ask a question
+    response = client.post('/ask', json={
+        'question': 'What is the capital of France?'
+    }, headers={'Authorization': f'Bearer {token}'})
 
-if __name__ == "__main__":
-    unittest.main()
+    assert response.status_code == 200
+    assert b"question" in response.data  # Adjust this based on your actual response structure
+
